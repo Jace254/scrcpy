@@ -43,16 +43,22 @@ public final class AudioPlaybackCapture implements AudioCapture {
             Method setTargetMixRoleMethod = audioMixingRuleBuilderClass.getMethod("setTargetMixRole", int.class);
             setTargetMixRoleMethod.invoke(audioMixingRuleBuilder, mixRolePlayersConstant);
 
+            // audioMixingRuleBuilder.voiceCommunicationCaptureAllowed(true);
+            // Must be called before build(), otherwise it only mutates the builder and has no effect on the rule
+            try {
+                Method voiceCommunicationCaptureAllowedMethod = audioMixingRuleBuilderClass.getMethod("voiceCommunicationCaptureAllowed",
+                        boolean.class);
+                voiceCommunicationCaptureAllowedMethod.invoke(audioMixingRuleBuilder, true);
+            } catch (NoSuchMethodException e) {
+                Ln.w("Voice communication capture not supported on this device");
+            }
+
             AudioAttributes attributes = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build();
 
             // audioMixingRuleBuilder.addMixRule(AudioMixingRule.RULE_MATCH_ATTRIBUTE_USAGE, attributes);
             int ruleMatchAttributeUsageConstant = audioMixingRuleClass.getField("RULE_MATCH_ATTRIBUTE_USAGE").getInt(null);
             Method addMixRuleMethod = audioMixingRuleBuilderClass.getMethod("addMixRule", int.class, Object.class);
             addMixRuleMethod.invoke(audioMixingRuleBuilder, ruleMatchAttributeUsageConstant, attributes);
-
-            // audioMixingRuleBuilder.voiceCommunicationCaptureAllowed(true);
-            Method voiceCommunicationCaptureAllowedMethod = audioMixingRuleBuilderClass.getMethod("voiceCommunicationCaptureAllowed", boolean.class);
-            voiceCommunicationCaptureAllowedMethod.invoke(audioMixingRuleBuilder, true);
 
             // AudioMixingRule audioMixingRule = builder.build();
             Object audioMixingRule = audioMixingRuleBuilderClass.getMethod("build").invoke(audioMixingRuleBuilder);
