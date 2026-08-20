@@ -110,28 +110,33 @@ See [#4380](https://github.com/Genymobile/scrcpy/issues/4380).
 Unlike `--audio-source=output`, which captures the final mix at the device
 level, playback capture selects each player individually by its _audio usage_.
 A matching rule compares the usage for strict equality (there is no notion of
-category), and only `media` is captured by default.
+category). By default every usage is captured.
 
 This matters for games: the Android [low latency audio] guidelines instruct
 games to declare the `game` usage, which audio engines such as Wwise, FMOD,
-Unity and Unreal do. Their sound is therefore _not_ captured by default, while
-other sounds from the very same app (a cutscene played by `MediaPlayer`, for
-example) are.
+Unity and Unreal do.
 
 [low latency audio]: https://developer.android.com/games/sdk/oboe/low-latency-audio
 
-To capture more, pass a comma-separated list of extra usages:
+To restrict capture to specific usages, pass a comma-separated list:
 
 ```bash
-scrcpy --audio-dup=game                    # media + game
+scrcpy --audio-dup                         # all usages (including game)
+scrcpy --audio-dup=game                    # media + game only
 scrcpy --audio-dup=game,voice-communication
-scrcpy --audio-dup=all                     # everything below
+scrcpy --audio-dup=all                     # same as passing no list
 ```
 
 Possible values are `all`, `unknown`, `game`, `alarm`, `notification`,
-`assistant`, `sonification` (UI sounds), `accessibility`, `navigation` and
-`voice-communication`. The `media` usage is always captured, so `--audio-dup`
-without any value behaves exactly like upstream _scrcpy_.
+`notification-event`, `ringtone`, `assistant`, `sonification` (UI sounds),
+`accessibility`, `navigation`, `voice-communication`,
+`voice-communication-signalling` and `call-assistant`. If a list is given,
+`media` is always captured as well.
+
+`scrcpy --audio-dup` with no list captures every usage above, including `game`.
+Games that opt out of playback capture (Call of Duty: Mobile and other Tencent
+titles often do) are still captured when privileged playback capture is
+available.
 
 To find out which usage a specific sound uses, run the following command while
 it is playing, then look for `state:started` entries in the `players:` section:
@@ -142,8 +147,10 @@ adb shell dumpsys audio
 
 If a sound is still not captured after requesting its usage, it may be using
 the AAudio MMAP exclusive low latency path, which bypasses the mixer and cannot
-be intercepted by a dynamic audio policy. In that case, only
-`--audio-source=output` can capture it (at the cost of muting the device).
+be intercepted by a dynamic audio policy. Start scrcpy first, then launch (or
+force-stop and reopen) the game so the new audio stream goes through the mixer.
+If that still fails, only `--audio-source=output` can capture it (at the cost of
+muting the device).
 
 
 ## Codec

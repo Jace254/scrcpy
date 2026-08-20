@@ -174,7 +174,7 @@ _scrcpy() {
             ;;
         --audio-dup)
             # Only auto-complete a single usage
-            COMPREPLY=($(compgen -W 'all media unknown game alarm notification assistant sonification accessibility navigation voice-communication' -- "$cur"))
+            COMPREPLY=($(compgen -W 'all media unknown game alarm notification notification-event ringtone assistant sonification accessibility navigation voice-communication voice-communication-signalling call-assistant' -- "$cur"))
             return
             ;;
         -r|--record)

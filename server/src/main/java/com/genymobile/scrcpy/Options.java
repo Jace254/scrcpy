@@ -36,7 +36,7 @@ public class Options {
     private VideoSource videoSource = VideoSource.DISPLAY;
     private AudioSource audioSource = AudioSource.OUTPUT;
     private boolean audioDup;
-    private Set<AudioUsage> audioDupUsages = EnumSet.of(AudioUsage.MEDIA);
+    private Set<AudioUsage> audioDupUsages = EnumSet.allOf(AudioUsage.class);
     private int videoBitRate = 8000000;
     private int audioBitRate = 128000;
     private float maxFps;
@@ -651,7 +651,7 @@ public class Options {
     }
 
     private static Set<AudioUsage> parseAudioDupUsages(String value) {
-        // MEDIA is always captured, so that an empty list behaves like upstream scrcpy
+        // MEDIA is always captured; extra names from --audio-dup=<usages> are added to it
         Set<AudioUsage> usages = EnumSet.of(AudioUsage.MEDIA);
 
         for (String name : value.split(",", -1)) {

@@ -202,26 +202,30 @@ static const struct sc_option options[] = {
         .optional_arg = true,
         .text = "Duplicate audio (capture and keep playing on the device).\n"
                 "This feature is only available with --audio-source=playback.\n"
-                "Audio playback capture matches each player by its audio usage, "
-                "and only \"media\" is captured by default. Games using an audio "
-                "engine such as Wwise declare \"game\" instead, so their sound is "
-                "not captured unless it is requested explicitly.\n"
-                "An optional comma-separated list of extra usages to capture may "
-                "be provided. Possible values are:\n"
-                " - \"all\": every usage listed below.\n"
+                "Audio playback capture matches each player by its audio usage. "
+                "By default every usage is captured, including \"game\" (Wwise, "
+                "FMOD, Unity, Unreal…) and apps that opt out of capture when "
+                "privileged playback capture is available.\n"
+                "An optional comma-separated list may restrict the captured "
+                "usages. Possible values are:\n"
+                " - \"all\": every usage listed below (the default).\n"
+                " - \"media\"\n"
                 " - \"unknown\": players not declaring any usage.\n"
                 " - \"game\": game audio engines (Wwise, FMOD, Unity, Unreal…).\n"
                 " - \"alarm\"\n"
                 " - \"notification\"\n"
+                " - \"notification-event\"\n"
+                " - \"ringtone\"\n"
                 " - \"assistant\"\n"
                 " - \"sonification\": UI sounds and other system feedback.\n"
                 " - \"accessibility\"\n"
                 " - \"navigation\"\n"
                 " - \"voice-communication\": voice calls and in-game voice chat.\n"
-                "The \"media\" usage is always captured, so passing no value "
-                "behaves exactly like upstream scrcpy.\n"
+                " - \"voice-communication-signalling\"\n"
+                " - \"call-assistant\"\n"
+                "If a list is given, \"media\" is always included.\n"
                 "Examples:\n"
-                "    --audio-dup             # media only\n"
+                "    --audio-dup             # all usages\n"
                 "    --audio-dup=game        # media + game\n"
                 "    --audio-dup=game,voice-communication\n"
                 "    --audio-dup=all"
@@ -2177,11 +2181,15 @@ static const char *const sc_audio_dup_usages[] = {
     "game",
     "alarm",
     "notification",
+    "notification-event",
+    "ringtone",
     "assistant",
     "sonification",
     "accessibility",
     "navigation",
     "voice-communication",
+    "voice-communication-signalling",
+    "call-assistant",
 };
 
 static bool
@@ -2212,8 +2220,10 @@ parse_audio_dup_usages(const char *optarg) {
 
         if (!found) {
             LOGE("Unsupported audio usage: '%.*s' (expected all, media, "
-                 "unknown, game, alarm, notification, assistant, sonification, "
-                 "accessibility, navigation or voice-communication)",
+                 "unknown, game, alarm, notification, notification-event, "
+                 "ringtone, assistant, sonification, accessibility, "
+                 "navigation, voice-communication, "
+                 "voice-communication-signalling or call-assistant)",
                  (int) len, p);
             return false;
         }

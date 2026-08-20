@@ -14,6 +14,7 @@ import android.media.AudioRecord;
 import android.media.MediaCodec;
 import android.os.Build;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.Set;
@@ -35,87 +36,127 @@ public final class AudioPlaybackCapture implements AudioCapture {
     private AudioRecord createAudioRecord() throws AudioCaptureException {
         // See <https://github.com/Genymobile/scrcpy/issues/4380>
         try {
-            Class<?> audioMixingRuleClass = Class.forName("android.media.audiopolicy.AudioMixingRule");
-            Class<?> audioMixingRuleBuilderClass = Class.forName("android.media.audiopolicy.AudioMixingRule$Builder");
-
-            // AudioMixingRule.Builder audioMixingRuleBuilder = new AudioMixingRule.Builder();
-            Object audioMixingRuleBuilder = audioMixingRuleBuilderClass.getConstructor().newInstance();
-
-            // audioMixingRuleBuilder.setTargetMixRole(AudioMixingRule.MIX_ROLE_PLAYERS);
-            int mixRolePlayersConstant = audioMixingRuleClass.getField("MIX_ROLE_PLAYERS").getInt(null);
-            Method setTargetMixRoleMethod = audioMixingRuleBuilderClass.getMethod("setTargetMixRole", int.class);
-            setTargetMixRoleMethod.invoke(audioMixingRuleBuilder, mixRolePlayersConstant);
-
-            // audioMixingRuleBuilder.voiceCommunicationCaptureAllowed(true);
-            // Must be called before build(), and is required for USAGE_VOICE_COMMUNICATION to be captured at all
+            return createAudioRecord(true);
+        } catch (Exception privilegedException) {
+            Ln.w("Privileged playback capture failed, retrying without it");
             try {
-                Method voiceCommunicationCaptureAllowedMethod = audioMixingRuleBuilderClass.getMethod("voiceCommunicationCaptureAllowed",
-                        boolean.class);
-                voiceCommunicationCaptureAllowedMethod.invoke(audioMixingRuleBuilder, true);
-            } catch (NoSuchMethodException e) {
-                Ln.w("Voice communication capture not supported on this device");
+                return createAudioRecord(false);
+            } catch (Exception e) {
+                Ln.e("Could not capture audio playback", e);
+                throw new AudioCaptureException();
             }
-
-            // audioMixingRuleBuilder.addMixRule(AudioMixingRule.RULE_MATCH_ATTRIBUTE_USAGE, attributes);
-            // A rule matches a usage exactly, and several "match" rules of the same kind are OR-ed together by the audio policy
-            int ruleMatchAttributeUsageConstant = audioMixingRuleClass.getField("RULE_MATCH_ATTRIBUTE_USAGE").getInt(null);
-            Method addMixRuleMethod = audioMixingRuleBuilderClass.getMethod("addMixRule", int.class, Object.class);
-            for (AudioUsage usage : usages) {
-                AudioAttributes attributes = new AudioAttributes.Builder().setUsage(usage.getAttributesUsage()).build();
-                addMixRuleMethod.invoke(audioMixingRuleBuilder, ruleMatchAttributeUsageConstant, attributes);
-            }
-
-            // AudioMixingRule audioMixingRule = builder.build();
-            Object audioMixingRule = audioMixingRuleBuilderClass.getMethod("build").invoke(audioMixingRuleBuilder);
-
-            Class<?> audioMixClass = Class.forName("android.media.audiopolicy.AudioMix");
-            Class<?> audioMixBuilderClass = Class.forName("android.media.audiopolicy.AudioMix$Builder");
-
-            // AudioMix.Builder audioMixBuilder = new AudioMix.Builder(audioMixingRule);
-            Object audioMixBuilder = audioMixBuilderClass.getConstructor(audioMixingRuleClass).newInstance(audioMixingRule);
-
-            // audioMixBuilder.setFormat(createAudioFormat());
-            Method setFormat = audioMixBuilder.getClass().getMethod("setFormat", AudioFormat.class);
-            setFormat.invoke(audioMixBuilder, AudioConfig.createAudioFormat());
-
-            String routeFlagName = keepPlayingOnDevice ? "ROUTE_FLAG_LOOP_BACK_RENDER" : "ROUTE_FLAG_LOOP_BACK";
-            int routeFlags = audioMixClass.getField(routeFlagName).getInt(null);
-
-            // audioMixBuilder.setRouteFlags(routeFlag);
-            Method setRouteFlags = audioMixBuilder.getClass().getMethod("setRouteFlags", int.class);
-            setRouteFlags.invoke(audioMixBuilder, routeFlags);
-
-            // AudioMix audioMix = audioMixBuilder.build();
-            Object audioMix = audioMixBuilderClass.getMethod("build").invoke(audioMixBuilder);
-
-            Class<?> audioPolicyClass = Class.forName("android.media.audiopolicy.AudioPolicy");
-            Class<?> audioPolicyBuilderClass = Class.forName("android.media.audiopolicy.AudioPolicy$Builder");
-
-            // AudioPolicy.Builder audioPolicyBuilder = new AudioPolicy.Builder();
-            Object audioPolicyBuilder = audioPolicyBuilderClass.getConstructor(Context.class).newInstance(FakeContext.get());
-
-            // audioPolicyBuilder.addMix(audioMix);
-            Method addMixMethod = audioPolicyBuilderClass.getMethod("addMix", audioMixClass);
-            addMixMethod.invoke(audioPolicyBuilder, audioMix);
-
-            // AudioPolicy audioPolicy = audioPolicyBuilder.build();
-            Object audioPolicy = audioPolicyBuilderClass.getMethod("build").invoke(audioPolicyBuilder);
-
-            // AudioManager.registerAudioPolicyStatic(audioPolicy);
-            Method registerAudioPolicyStaticMethod = AudioManager.class.getDeclaredMethod("registerAudioPolicyStatic", audioPolicyClass);
-            registerAudioPolicyStaticMethod.setAccessible(true);
-            int result = (int) registerAudioPolicyStaticMethod.invoke(null, audioPolicy);
-            if (result != 0) {
-                throw new RuntimeException("registerAudioPolicy() returned " + result);
-            }
-
-            // audioPolicy.createAudioRecordSink(audioPolicy);
-            Method createAudioRecordSinkClass = audioPolicyClass.getMethod("createAudioRecordSink", audioMixClass);
-            return (AudioRecord) createAudioRecordSinkClass.invoke(audioPolicy, audioMix);
-        } catch (Exception e) {
-            Ln.e("Could not capture audio playback", e);
-            throw new AudioCaptureException();
         }
+    }
+
+    @SuppressLint("PrivateApi")
+    private AudioRecord createAudioRecord(boolean privileged) throws Exception {
+        Class<?> audioMixingRuleClass = Class.forName("android.media.audiopolicy.AudioMixingRule");
+        Class<?> audioMixingRuleBuilderClass = Class.forName("android.media.audiopolicy.AudioMixingRule$Builder");
+
+        // AudioMixingRule.Builder audioMixingRuleBuilder = new AudioMixingRule.Builder();
+        Object audioMixingRuleBuilder = audioMixingRuleBuilderClass.getConstructor().newInstance();
+
+        // audioMixingRuleBuilder.setTargetMixRole(AudioMixingRule.MIX_ROLE_PLAYERS);
+        int mixRolePlayersConstant = audioMixingRuleClass.getField("MIX_ROLE_PLAYERS").getInt(null);
+        Method setTargetMixRoleMethod = audioMixingRuleBuilderClass.getMethod("setTargetMixRole", int.class);
+        setTargetMixRoleMethod.invoke(audioMixingRuleBuilder, mixRolePlayersConstant);
+
+        // audioMixingRuleBuilder.voiceCommunicationCaptureAllowed(true);
+        // Must be called before build(), and is required for USAGE_VOICE_COMMUNICATION to be captured at all
+        try {
+            Method voiceCommunicationCaptureAllowedMethod = audioMixingRuleBuilderClass.getMethod("voiceCommunicationCaptureAllowed",
+                    boolean.class);
+            voiceCommunicationCaptureAllowedMethod.invoke(audioMixingRuleBuilder, true);
+        } catch (NoSuchMethodException e) {
+            Ln.w("Voice communication capture not supported on this device");
+        }
+
+        // audioMixingRuleBuilder.addMixRule(AudioMixingRule.RULE_MATCH_ATTRIBUTE_USAGE, attributes);
+        // A rule matches a usage exactly, and several "match" rules of the same kind are OR-ed together by the audio policy
+        int ruleMatchAttributeUsageConstant = audioMixingRuleClass.getField("RULE_MATCH_ATTRIBUTE_USAGE").getInt(null);
+        Method addMixRuleMethod = audioMixingRuleBuilderClass.getMethod("addMixRule", int.class, Object.class);
+        for (AudioUsage usage : usages) {
+            AudioAttributes attributes = new AudioAttributes.Builder().setUsage(usage.getAttributesUsage()).build();
+            addMixRuleMethod.invoke(audioMixingRuleBuilder, ruleMatchAttributeUsageConstant, attributes);
+        }
+
+        // AudioMixingRule audioMixingRule = builder.build();
+        Object audioMixingRule = audioMixingRuleBuilderClass.getMethod("build").invoke(audioMixingRuleBuilder);
+
+        Class<?> audioMixClass = Class.forName("android.media.audiopolicy.AudioMix");
+        Class<?> audioMixBuilderClass = Class.forName("android.media.audiopolicy.AudioMix$Builder");
+
+        // AudioMix.Builder audioMixBuilder = new AudioMix.Builder(audioMixingRule);
+        Object audioMixBuilder = audioMixBuilderClass.getConstructor(audioMixingRuleClass).newInstance(audioMixingRule);
+
+        // audioMixBuilder.setFormat(createAudioFormat());
+        Method setFormat = audioMixBuilder.getClass().getMethod("setFormat", AudioFormat.class);
+        setFormat.invoke(audioMixBuilder, AudioConfig.createAudioFormat());
+
+        String routeFlagName = keepPlayingOnDevice ? "ROUTE_FLAG_LOOP_BACK_RENDER" : "ROUTE_FLAG_LOOP_BACK";
+        int routeFlags = audioMixClass.getField(routeFlagName).getInt(null);
+
+        // audioMixBuilder.setRouteFlags(routeFlag);
+        Method setRouteFlags = audioMixBuilder.getClass().getMethod("setRouteFlags", int.class);
+        setRouteFlags.invoke(audioMixBuilder, routeFlags);
+
+        // AudioMix audioMix = audioMixBuilder.build();
+        // Build before enabling privileged capture: AudioMix.Builder rejects privileged capture unless the format is 16 kHz mono
+        Object audioMix = audioMixBuilderClass.getMethod("build").invoke(audioMixBuilder);
+
+        if (privileged && !enablePrivilegedPlaybackCapture(audioMixingRule)) {
+            throw new IllegalStateException("Privileged playback capture is not available");
+        }
+
+        Class<?> audioPolicyClass = Class.forName("android.media.audiopolicy.AudioPolicy");
+        Class<?> audioPolicyBuilderClass = Class.forName("android.media.audiopolicy.AudioPolicy$Builder");
+
+        // AudioPolicy.Builder audioPolicyBuilder = new AudioPolicy.Builder();
+        Object audioPolicyBuilder = audioPolicyBuilderClass.getConstructor(Context.class).newInstance(FakeContext.get());
+
+        // audioPolicyBuilder.addMix(audioMix);
+        Method addMixMethod = audioPolicyBuilderClass.getMethod("addMix", audioMixClass);
+        addMixMethod.invoke(audioPolicyBuilder, audioMix);
+
+        // AudioPolicy audioPolicy = audioPolicyBuilder.build();
+        Object audioPolicy = audioPolicyBuilderClass.getMethod("build").invoke(audioPolicyBuilder);
+
+        // AudioManager.registerAudioPolicyStatic(audioPolicy);
+        Method registerAudioPolicyStaticMethod = AudioManager.class.getDeclaredMethod("registerAudioPolicyStatic", audioPolicyClass);
+        registerAudioPolicyStaticMethod.setAccessible(true);
+        int result = (int) registerAudioPolicyStaticMethod.invoke(null, audioPolicy);
+        if (result != 0) {
+            throw new RuntimeException("registerAudioPolicy() returned " + result);
+        }
+
+        // audioPolicy.createAudioRecordSink(audioPolicy);
+        Method createAudioRecordSinkClass = audioPolicyClass.getMethod("createAudioRecordSink", audioMixClass);
+        return (AudioRecord) createAudioRecordSinkClass.invoke(audioPolicy, audioMix);
+    }
+
+    /**
+     * Capture players that opted out with {@code ALLOW_CAPTURE_BY_SYSTEM} (typical for games such as CODM).
+     * <p>
+     * {@code AudioMix.Builder} refuses privileged capture unless the mix is 16 kHz mono. The flag lives on the mixing rule, so it can be set after
+     * the mix is built at 48 kHz stereo. The native audio policy reads that flag when the policy is registered.
+     */
+    private static boolean enablePrivilegedPlaybackCapture(Object audioMixingRule) {
+        for (String fieldName : new String[] {
+                "mAllowPrivilegedPlaybackCapture",
+                "mAllowPrivilegedMediaPlaybackCapture",
+        }) {
+            try {
+                Field field = audioMixingRule.getClass().getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.setBoolean(audioMixingRule, true);
+                Ln.i("Privileged playback capture enabled (opted-out app audio)");
+                return true;
+            } catch (ReflectiveOperationException e) {
+                // try the next name (the field was renamed across Android versions)
+            }
+        }
+
+        return false;
     }
 
     @Override
@@ -128,6 +169,7 @@ public final class AudioPlaybackCapture implements AudioCapture {
 
     @Override
     public void start() throws AudioCaptureException {
+        Ln.i("Audio playback capture usages: " + usages);
         recorder = createAudioRecord();
         recorder.startRecording();
         reader = new AudioRecordReader(recorder);
